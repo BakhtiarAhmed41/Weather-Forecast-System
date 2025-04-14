@@ -3,193 +3,193 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
-from io import StringIO
 
-# Weather states and severity
+# ---------------------------
+# Initialization
+# ---------------------------
+st.set_page_config(page_title="Weather Forecast System", layout="wide")
 weather_states = ['Sunny', 'Cloudy', 'Rainy', 'Stormy']
 severity_map = {'Sunny': 1, 'Cloudy': 2, 'Rainy': 3, 'Stormy': 4}
+temp_columns = ["Temp_Morning", "Temp_Afternoon", "Temp_Night"]
 
-# Initialize session state
 if 'weather_data' not in st.session_state:
-    st.session_state.weather_data = pd.DataFrame(columns=[
-        'Day', 'Weather', 'Severity',
-        'Morning_Temp', 'Afternoon_Temp', 'Evening_Temp'
-    ])
+    columns = ['Day', 'Weather', 'Severity'] + temp_columns
+    st.session_state.weather_data = pd.DataFrame(columns=columns)
 
+# ---------------------------
+# UI Layout
+# ---------------------------
 st.title("🌦️ Weather Forecast System")
 
 tab1, tab2, tab3, tab4 = st.tabs(["Graphs", "Report", "TPM", "Markov Chain"])
 
-# Function to add weather entry
-def add_weather_entry(day, weather, morning_temp, afternoon_temp, evening_temp):
+# ---------------------------
+# Helper Functions
+# ---------------------------
+def add_weather_entry(day, weather, temps):
     severity = severity_map.get(weather, 1)
-    entry = {
+    new_data = {
         "Day": day,
         "Weather": weather,
         "Severity": severity,
-        "Morning_Temp": morning_temp,
-        "Afternoon_Temp": afternoon_temp,
-        "Evening_Temp": evening_temp
+        "Temp_Morning": temps.get("Temp_Morning"),
+        "Temp_Afternoon": temps.get("Temp_Afternoon"),
+        "Temp_Night": temps.get("Temp_Night")
     }
-    st.session_state.weather_data = pd.concat(
-        [st.session_state.weather_data, pd.DataFrame([entry])],
-        ignore_index=True
-    )
+    st.session_state.weather_data = pd.concat([
+        st.session_state.weather_data,
+        pd.DataFrame([new_data])
+    ], ignore_index=True)
 
-# Upload / Download
+def ensure_columns(df):
+    for col in ['Severity'] + temp_columns:
+        if col not in df.columns:
+            if col == "Severity":
+                df['Severity'] = df['Weather'].map(severity_map)
+            else:
+                df[col] = np.nan
+    return df
+
+# ---------------------------
+# Sidebar Upload/Download
+# ---------------------------
 st.sidebar.header("📂 Upload / Download Data")
 uploaded_file = st.sidebar.file_uploader("Upload CSV", type=["csv"])
 if uploaded_file:
-    st.session_state.weather_data = pd.read_csv(uploaded_file)
-    st.sidebar.success("Data uploaded successfully!")
+    try:
+        df = pd.read_csv(uploaded_file)
+        df = ensure_columns(df)
+        st.session_state.weather_data = df
+        st.sidebar.success("Data uploaded successfully!")
+    except Exception as e:
+        st.sidebar.error(f"Failed to load file: {e}")
 
 if not st.session_state.weather_data.empty:
     csv = st.session_state.weather_data.to_csv(index=False)
     st.sidebar.download_button("Download Data", csv, "weather_data.csv", "text/csv")
 
+# ---------------------------
 # Tab 1: Graphs
+# ---------------------------
 with tab1:
-    st.subheader("📊 Weather Visualizations")
+    st.subheader("📊 Weather Entry and Visualizations")
 
-    with st.form("weather_form_graph_tab"):
-        day = st.number_input("Day", min_value=1)
-        weather = st.selectbox("Weather Type", weather_states)
-        morning_temp = st.number_input("🌅 Morning Temp (°C)", step=0.1)
-        afternoon_temp = st.number_input("🌞 Afternoon Temp (°C)", step=0.1)
-        evening_temp = st.number_input("🌇 Evening Temp (°C)", step=0.1)
-        submitted = st.form_submit_button("Add Entry")
+    with st.form("add_weather_form"):
+        cols = st.columns(4)
+        day = cols[0].number_input("Day", min_value=1, value=1)
+        weather = cols[1].selectbox("Weather Type", weather_states)
+        temp_m = cols[2].number_input("Morning Temp", value=25.0)
+        temp_a = cols[3].number_input("Afternoon Temp", value=30.0)
+        temp_n = st.number_input("Night Temp", value=20.0)
+        submitted = st.form_submit_button("➕ Add Weather Entry")
         if submitted:
-            add_weather_entry(day, weather, morning_temp, afternoon_temp, evening_temp)
-            st.success(f"Day {day} - {weather} with temperatures added.")
+            add_weather_entry(day, weather, {
+                "Temp_Morning": temp_m,
+                "Temp_Afternoon": temp_a,
+                "Temp_Night": temp_n
+            })
+            st.success(f"✅ Day {day} - {weather} added successfully.")
 
-    if not st.session_state.weather_data.empty:
-        df = st.session_state.weather_data.sort_values("Day")
+    data = ensure_columns(st.session_state.weather_data)
 
-        # Weather Frequency Bar Plot
-        st.markdown("### Weather Frequency")
-        counts = df['Weather'].value_counts()
-        fig, ax = plt.subplots()
-        ax.bar(counts.index, counts.values, color='skyblue')
-        ax.set_ylabel("Count")
-        st.pyplot(fig)
+    if not data.empty:
+        st.markdown("### 📌 Weather Frequency")
+        counts = data['Weather'].value_counts()
+        fig1, ax1 = plt.subplots()
+        ax1.bar(counts.index, counts.values, color='skyblue')
+        ax1.set_ylabel("Count")
+        st.pyplot(fig1)
 
-        # Pie Chart
-        st.markdown("### Weather Distribution")
+        st.markdown("### 🥧 Weather Distribution Pie Chart")
         fig2, ax2 = plt.subplots()
         ax2.pie(counts, labels=counts.index, autopct='%1.1f%%')
         ax2.axis('equal')
         st.pyplot(fig2)
 
-        # Severity Over Time
-        st.markdown("### Weather Severity Over Time")
+        st.markdown("### 📈 Weather Severity Over Time")
+        sorted_df = data.sort_values("Day")
         fig3, ax3 = plt.subplots()
-        ax3.plot(df['Day'], df['Severity'], marker='o')
-        ax3.set_ylabel("Severity")
+        ax3.plot(sorted_df["Day"], sorted_df["Severity"], marker='o')
         ax3.set_xlabel("Day")
-        ax3.set_title("Time Series of Weather Severity")
+        ax3.set_ylabel("Severity")
         st.pyplot(fig3)
 
-        # Temperature Trends
-        st.markdown("### 🌡️ Temperature Trends Over Days")
-        fig_temp, ax_temp = plt.subplots()
-        ax_temp.plot(df["Day"], df["Morning_Temp"], label="Morning", marker='o')
-        ax_temp.plot(df["Day"], df["Afternoon_Temp"], label="Afternoon", marker='s')
-        ax_temp.plot(df["Day"], df["Evening_Temp"], label="Evening", marker='^')
-        ax_temp.set_xlabel("Day")
-        ax_temp.set_ylabel("Temperature (°C)")
-        ax_temp.legend()
-        ax_temp.set_title("Daily Temperature Patterns")
-        st.pyplot(fig_temp)
+        st.markdown("### 🔄 Custom Graph: Select X and Y")
+        columns = data.columns.tolist()
+        x_col = st.selectbox("X-Axis", columns, index=0, key="x_axis_graph")
+        y_col = st.selectbox("Y-Axis", columns, index=columns.index("Temp_Afternoon"), key="y_axis_graph")
 
-        # Custom Graph
-        st.markdown("### Custom Graph: Select X and Y Axes")
-        columns = df.columns.tolist()
-        x_axis = st.selectbox("X-Axis", columns, index=0)
-        y_axis = st.selectbox("Y-Axis", columns, index=1)
-        if x_axis and y_axis:
-            fig4, ax4 = plt.subplots()
-            ax4.plot(df[x_axis], df[y_axis], marker='o')
-            ax4.set_xlabel(x_axis)
-            ax4.set_ylabel(y_axis)
-            ax4.set_title(f"{y_axis} vs {x_axis}")
-            st.pyplot(fig4)
+        fig4, ax4 = plt.subplots()
+        ax4.plot(data[x_col], data[y_col], marker='o')
+        ax4.set_xlabel(x_col)
+        ax4.set_ylabel(y_col)
+        ax4.set_title(f"{y_col} vs {x_col}")
+        st.pyplot(fig4)
 
+# ---------------------------
 # Tab 2: Report
+# ---------------------------
 with tab2:
-    st.subheader("📋 Data Report")
-    df = st.session_state.weather_data
-    if not df.empty:
+    st.subheader("📋 Weather Report")
+    if not data.empty:
         st.markdown(f"""
-        - **Total Days:** {len(df)}
-        - **Unique Weather Types:** {df['Weather'].nunique()}
-        - **Most Common:** {df['Weather'].mode()[0]}
+        - **Total Days:** {len(data)}
+        - **Unique Weather Types:** {data['Weather'].nunique()}
+        - **Most Frequent Weather:** {data['Weather'].mode()[0]}
         """)
-        st.dataframe(df)
+        st.dataframe(data)
     else:
-        st.warning("No data to show yet.")
+        st.info("No data to show yet.")
 
-# Tab 3: TPM
+# ---------------------------
+# Tab 3: Transition Probability Matrix
+# ---------------------------
 with tab3:
     st.subheader("🔄 Transition Probability Matrix")
-    df = st.session_state.weather_data
-    if len(df) > 1:
-        tpm = pd.crosstab(df['Weather'].shift(), df['Weather'], normalize=0).reindex(
+    if len(data) > 1:
+        tpm = pd.crosstab(data['Weather'].shift(), data['Weather'], normalize=0).reindex(
             index=weather_states, columns=weather_states, fill_value=0).round(2)
         st.dataframe(tpm)
     else:
-        st.warning("Please add more data to calculate TPM.")
+        st.warning("Add more data to calculate TPM.")
 
-# Tab 4: Markov Chain
+# ---------------------------
+# Tab 4: Markov Chain Forecast
+# ---------------------------
 with tab4:
     st.subheader("🔁 Weather Forecast using Markov Chain")
-    df = st.session_state.weather_data
-    if len(df) > 1:
-        tpm = pd.crosstab(df['Weather'].shift(), df['Weather'], normalize=0).reindex(
+    if len(data) > 1:
+        tpm = pd.crosstab(data['Weather'].shift(), data['Weather'], normalize=0).reindex(
             index=weather_states, columns=weather_states, fill_value=0).round(2)
 
-        current_state = st.selectbox("Current State", weather_states)
-        steps = st.slider("Days Ahead", 1, 10, 3)
+        current_state = st.selectbox("Select Current State", weather_states)
+        steps = st.slider("Steps (Days Ahead)", 1, 10, 3)
 
         forecast = [current_state]
         for _ in range(steps):
             probs = tpm.loc[forecast[-1]]
-            next_state = np.random.choice(probs.index, p=probs.values) if probs.sum() > 0 else np.random.choice(weather_states)
-            forecast.append(next_state)
+            if probs.sum() == 0:
+                forecast.append(np.random.choice(weather_states))
+            else:
+                forecast.append(np.random.choice(probs.index, p=probs.values))
 
         st.markdown("### Forecast Path")
         st.write(" → ".join(forecast))
 
-        # Visual Graph
-        st.markdown("### 📈 Markov Chain Visualization")
+        st.markdown("### 📉 Graphical Markov Chain")
         G = nx.DiGraph()
-        for from_state in tpm.index:
-            for to_state in tpm.columns:
-                prob = tpm.loc[from_state, to_state]
+
+        for i, row in tpm.iterrows():
+            for j, prob in row.items():
                 if prob > 0:
-                    G.add_edge(from_state, to_state, weight=prob)
+                    G.add_edge(i, j, weight=prob)
 
-        pos = nx.spring_layout(G, seed=42)
-        fig_mc, ax_mc = plt.subplots()
-        edge_weights = [G[u][v]['weight'] for u, v in G.edges()]
-        nx.draw(G, pos, ax=ax_mc, with_labels=True, node_color='lightblue', node_size=2000,
-                edge_color='gray', width=edge_weights, arrowsize=20, font_size=10)
+        pos = nx.circular_layout(G)
+        fig, ax = plt.subplots(figsize=(6, 6))
+        nx.draw(G, pos, with_labels=True, node_color='lightgreen', edge_color='gray', node_size=2000, font_size=10)
         edge_labels = nx.get_edge_attributes(G, 'weight')
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax_mc)
-        st.pyplot(fig_mc)
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
+        st.pyplot(fig)
 
-        # Average temperature per forecast state
-        st.markdown("### 🌤️ Avg Temperature Forecast (Based on Weather)")
-        if {'Morning_Temp', 'Afternoon_Temp', 'Evening_Temp'}.issubset(df.columns):
-            morning_avg = df.groupby("Weather")["Morning_Temp"].mean().round(1)
-            afternoon_avg = df.groupby("Weather")["Afternoon_Temp"].mean().round(1)
-            evening_avg = df.groupby("Weather")["Evening_Temp"].mean().round(1)
-
-            forecast_temp_df = pd.DataFrame({
-                "Morning (°C)": morning_avg,
-                "Afternoon (°C)": afternoon_avg,
-                "Evening (°C)": evening_avg
-            })
-
-            st.dataframe(forecast_temp_df.loc[forecast])
     else:
-        st.info("More data needed to run Markov simulation.")
+        st.info("Add more entries to use Markov simulation.")
