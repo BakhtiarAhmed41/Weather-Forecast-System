@@ -3,11 +3,12 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import networkx as nx
+import time
+import random
 
-# ---------------------------
-# Initialization
-# ---------------------------
 st.set_page_config(page_title="Weather Forecast System", layout="wide")
+
+# Initialization
 weather_states = ['Sunny', 'Cloudy', 'Rainy', 'Stormy']
 severity_map = {'Sunny': 1, 'Cloudy': 2, 'Rainy': 3, 'Stormy': 4}
 temp_columns = ["Temp_Morning", "Temp_Afternoon", "Temp_Night"]
@@ -16,12 +17,8 @@ if 'weather_data' not in st.session_state:
     columns = ['Day', 'Weather', 'Severity'] + temp_columns
     st.session_state.weather_data = pd.DataFrame(columns=columns)
 
-# ---------------------------
-# UI Layout
-# ---------------------------
-st.title("🌦️ Weather Forecast System")
-
-tab1, tab2, tab3, tab4 = st.tabs(["Graphs", "Report", "TPM", "Markov Chain"])
+if 'live_simulation' not in st.session_state:
+    st.session_state.live_simulation = False
 
 # ---------------------------
 # Helper Functions
@@ -36,10 +33,12 @@ def add_weather_entry(day, weather, temps):
         "Temp_Afternoon": temps.get("Temp_Afternoon"),
         "Temp_Night": temps.get("Temp_Night")
     }
-    st.session_state.weather_data = pd.concat([
-        st.session_state.weather_data,
-        pd.DataFrame([new_data])
-    ], ignore_index=True)
+    new_row = pd.DataFrame([new_data])
+    if not new_row.dropna(axis=1, how='all').empty:
+        st.session_state.weather_data = pd.concat([
+            st.session_state.weather_data,
+            new_row
+        ], ignore_index=True)
 
 def ensure_columns(df):
     for col in ['Severity'] + temp_columns:
@@ -69,6 +68,15 @@ if not st.session_state.weather_data.empty:
     st.sidebar.download_button("Download Data", csv, "weather_data.csv", "text/csv")
 
 # ---------------------------
+# UI Layout
+# ---------------------------
+st.title("🌦️ Weather Forecast System")
+
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Graphs", "Report", "TPM", "Markov Chain", "Live Simulation"])
+
+data = ensure_columns(st.session_state.weather_data)
+
+# ---------------------------
 # Tab 1: Graphs
 # ---------------------------
 with tab1:
@@ -89,8 +97,6 @@ with tab1:
                 "Temp_Night": temp_n
             })
             st.success(f"✅ Day {day} - {weather} added successfully.")
-
-    data = ensure_columns(st.session_state.weather_data)
 
     if not data.empty:
         st.markdown("### 📌 Weather Frequency")
@@ -142,7 +148,7 @@ with tab2:
         st.info("No data to show yet.")
 
 # ---------------------------
-# Tab 3: Transition Probability Matrix
+# Tab 3: TPM
 # ---------------------------
 with tab3:
     st.subheader("🔄 Transition Probability Matrix")
@@ -154,7 +160,7 @@ with tab3:
         st.warning("Add more data to calculate TPM.")
 
 # ---------------------------
-# Tab 4: Markov Chain Forecast
+# Tab 4: Markov Chain
 # ---------------------------
 with tab4:
     st.subheader("🔁 Weather Forecast using Markov Chain")
@@ -168,17 +174,21 @@ with tab4:
         forecast = [current_state]
         for _ in range(steps):
             probs = tpm.loc[forecast[-1]]
-            if probs.sum() == 0:
+            if probs.isnull().all() or probs.sum() == 0:
                 forecast.append(np.random.choice(weather_states))
             else:
-                forecast.append(np.random.choice(probs.index, p=probs.values))
+                probs = probs.fillna(0)
+                probs = probs / probs.sum()
+                if not np.isclose(probs.sum(), 1.0):
+                    forecast.append(np.random.choice(weather_states))
+                else:
+                    forecast.append(np.random.choice(probs.index, p=probs.values))
 
         st.markdown("### Forecast Path")
         st.write(" → ".join(forecast))
 
         st.markdown("### 📉 Graphical Markov Chain")
         G = nx.DiGraph()
-
         for i, row in tpm.iterrows():
             for j, prob in row.items():
                 if prob > 0:
@@ -190,6 +200,76 @@ with tab4:
         edge_labels = nx.get_edge_attributes(G, 'weight')
         nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
         st.pyplot(fig)
-
     else:
         st.info("Add more entries to use Markov simulation.")
+
+# ---------------------------
+# Tab 5: Live Simulation
+# ---------------------------
+with tab5:
+    st.subheader("⏱️ Live Weather Data Simulation")
+
+    if "live_simulation" not in st.session_state:
+        st.session_state.live_simulation = False
+    if "start_clicked" not in st.session_state:
+        st.session_state.start_clicked = False
+    if "stop_clicked" not in st.session_state:
+        st.session_state.stop_clicked = False
+
+    col1, col2 = st.columns([1, 1])
+
+    if not st.session_state.live_simulation:
+        if col1.button("▶️ Start Simulation"):
+            st.session_state.live_simulation = True
+            st.session_state.start_clicked = True
+            st.session_state.stop_clicked = False
+            st.rerun()
+    else:
+        if col1.button("⏹️ Stop Simulation"):
+            st.session_state.live_simulation = False
+            st.session_state.stop_clicked = True
+            st.session_state.start_clicked = False
+            st.rerun()
+
+    if col2.button("🔁 Reset Data"):
+        st.session_state.weather_data = pd.DataFrame(columns=['Day', 'Weather', 'Severity'] + temp_columns)
+        st.success("Data has been reset.")
+
+    graph_container = st.empty()
+    table_container = st.empty()
+
+    # Initial empty chart setup (only created once)
+    fig, ax = plt.subplots()
+    line_plot, = ax.plot([], [], marker='o', color='purple')
+    ax.set_xlabel("Day")
+    ax.set_ylabel("Severity")
+    ax.set_title("📉 Live Weather Severity Over Time")
+
+    while st.session_state.live_simulation:
+        # Generate new data
+        last_day = int(data["Day"].max()) if not data.empty else 0
+        new_day = last_day + 1
+        weather = random.choice(weather_states)
+        temps = {
+            "Temp_Morning": round(random.uniform(20, 35), 2),
+            "Temp_Afternoon": round(random.uniform(25, 40), 2),
+            "Temp_Night": round(random.uniform(15, 30), 2)
+        }
+        add_weather_entry(new_day, weather, temps)
+
+        # Update chart data
+        current_data = ensure_columns(st.session_state.weather_data)
+        days = current_data["Day"]
+        severity = current_data["Severity"]
+        line_plot.set_data(days, severity)
+        ax.relim()
+        ax.autoscale_view()
+
+        # Update UI without flicker
+        graph_container.pyplot(fig, clear_figure=False)
+
+        table_container.markdown("### 🧾 Recorded Weather Data")
+        table_container.dataframe(current_data.tail(10), use_container_width=True)
+
+        time.sleep(1)
+        st.rerun()
