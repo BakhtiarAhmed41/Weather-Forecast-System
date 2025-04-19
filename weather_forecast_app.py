@@ -8,11 +8,11 @@ import random
 
 st.set_page_config(page_title="Weather Forecast System", layout="wide")
 
-# Initialization
 weather_states = ['Sunny', 'Cloudy', 'Rainy', 'Stormy']
 severity_map = {'Sunny': 1, 'Cloudy': 2, 'Rainy': 3, 'Stormy': 4}
 temp_columns = ["Temp_Morning", "Temp_Afternoon", "Temp_Night"]
 
+# -------------------- Initialization --------------------
 if 'weather_data' not in st.session_state:
     columns = ['Day', 'Weather', 'Severity'] + temp_columns
     st.session_state.weather_data = pd.DataFrame(columns=columns)
@@ -20,9 +20,10 @@ if 'weather_data' not in st.session_state:
 if 'live_simulation' not in st.session_state:
     st.session_state.live_simulation = False
 
-# ---------------------------
-# Helper Functions
-# ---------------------------
+if 'last_simulation_data' not in st.session_state:
+    st.session_state.last_simulation_data = pd.DataFrame()
+
+# -------------------- Helper Functions --------------------
 def add_weather_entry(day, weather, temps):
     severity = severity_map.get(weather, 1)
     new_data = {
@@ -34,11 +35,7 @@ def add_weather_entry(day, weather, temps):
         "Temp_Night": temps.get("Temp_Night")
     }
     new_row = pd.DataFrame([new_data])
-    if not new_row.dropna(axis=1, how='all').empty:
-        st.session_state.weather_data = pd.concat([
-            st.session_state.weather_data,
-            new_row
-        ], ignore_index=True)
+    st.session_state.weather_data = pd.concat([st.session_state.weather_data, new_row], ignore_index=True)
 
 def ensure_columns(df):
     for col in ['Severity'] + temp_columns:
@@ -49,9 +46,7 @@ def ensure_columns(df):
                 df[col] = np.nan
     return df
 
-# ---------------------------
-# Sidebar Upload/Download
-# ---------------------------
+# -------------------- Sidebar --------------------
 st.sidebar.header("📂 Upload / Download Data")
 uploaded_file = st.sidebar.file_uploader("Upload CSV", type=["csv"])
 if uploaded_file:
@@ -67,18 +62,13 @@ if not st.session_state.weather_data.empty:
     csv = st.session_state.weather_data.to_csv(index=False)
     st.sidebar.download_button("Download Data", csv, "weather_data.csv", "text/csv")
 
-# ---------------------------
-# UI Layout
-# ---------------------------
+# -------------------- Tabs --------------------
 st.title("🌦️ Weather Forecast System")
-
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Graphs", "Report", "TPM", "Markov Chain", "Live Simulation"])
 
 data = ensure_columns(st.session_state.weather_data)
 
-# ---------------------------
-# Tab 1: Graphs
-# ---------------------------
+# -------------------- Tab 1: Graphs --------------------
 with tab1:
     st.subheader("📊 Weather Entry and Visualizations")
 
@@ -96,7 +86,7 @@ with tab1:
                 "Temp_Afternoon": temp_a,
                 "Temp_Night": temp_n
             })
-            st.success(f"✅ Day {day} - {weather} added successfully.")
+            st.rerun()
 
     if not data.empty:
         st.markdown("### 📌 Weather Frequency")
@@ -132,9 +122,7 @@ with tab1:
         ax4.set_title(f"{y_col} vs {x_col}")
         st.pyplot(fig4)
 
-# ---------------------------
-# Tab 2: Report
-# ---------------------------
+# -------------------- Tab 2: Report --------------------
 with tab2:
     st.subheader("📋 Weather Report")
     if not data.empty:
@@ -147,9 +135,7 @@ with tab2:
     else:
         st.info("No data to show yet.")
 
-# ---------------------------
-# Tab 3: TPM
-# ---------------------------
+# -------------------- Tab 3: TPM --------------------
 with tab3:
     st.subheader("🔄 Transition Probability Matrix")
     if len(data) > 1:
@@ -159,9 +145,7 @@ with tab3:
     else:
         st.warning("Add more data to calculate TPM.")
 
-# ---------------------------
-# Tab 4: Markov Chain
-# ---------------------------
+# -------------------- Tab 4: Markov Chain --------------------
 with tab4:
     st.subheader("🔁 Weather Forecast using Markov Chain")
     if len(data) > 1:
@@ -174,15 +158,11 @@ with tab4:
         forecast = [current_state]
         for _ in range(steps):
             probs = tpm.loc[forecast[-1]]
-            if probs.isnull().all() or probs.sum() == 0:
+            if probs.sum() == 0:
                 forecast.append(np.random.choice(weather_states))
             else:
-                probs = probs.fillna(0)
                 probs = probs / probs.sum()
-                if not np.isclose(probs.sum(), 1.0):
-                    forecast.append(np.random.choice(weather_states))
-                else:
-                    forecast.append(np.random.choice(probs.index, p=probs.values))
+                forecast.append(np.random.choice(probs.index, p=probs.values))
 
         st.markdown("### Forecast Path")
         st.write(" → ".join(forecast))
@@ -203,32 +183,20 @@ with tab4:
     else:
         st.info("Add more entries to use Markov simulation.")
 
-# ---------------------------
-# Tab 5: Live Simulation
-# ---------------------------
+# -------------------- Tab 5: Live Simulation --------------------
 with tab5:
     st.subheader("⏱️ Live Weather Data Simulation")
 
-    if "live_simulation" not in st.session_state:
-        st.session_state.live_simulation = False
-    if "start_clicked" not in st.session_state:
-        st.session_state.start_clicked = False
-    if "stop_clicked" not in st.session_state:
-        st.session_state.stop_clicked = False
-
     col1, col2 = st.columns([1, 1])
-
     if not st.session_state.live_simulation:
         if col1.button("▶️ Start Simulation"):
             st.session_state.live_simulation = True
-            st.session_state.start_clicked = True
-            st.session_state.stop_clicked = False
+            st.session_state.last_simulation_data = st.session_state.weather_data.copy()
             st.rerun()
     else:
         if col1.button("⏹️ Stop Simulation"):
             st.session_state.live_simulation = False
-            st.session_state.stop_clicked = True
-            st.session_state.start_clicked = False
+            st.session_state.last_simulation_data = st.session_state.weather_data.copy()
             st.rerun()
 
     if col2.button("🔁 Reset Data"):
@@ -238,38 +206,52 @@ with tab5:
     graph_container = st.empty()
     table_container = st.empty()
 
-    # Initial empty chart setup (only created once)
-    fig, ax = plt.subplots()
-    line_plot, = ax.plot([], [], marker='o', color='purple')
-    ax.set_xlabel("Day")
-    ax.set_ylabel("Severity")
-    ax.set_title("📉 Live Weather Severity Over Time")
+    if st.session_state.live_simulation:
+        # Avoid flickering by updating plot inside the while loop only
+        while True:
+            last_day = int(data["Day"].max()) if not data.empty else 0
+            new_day = last_day + 1
+            weather = random.choice(weather_states)
+            temps = {
+                "Temp_Morning": round(random.uniform(20, 35), 2),
+                "Temp_Afternoon": round(random.uniform(25, 40), 2),
+                "Temp_Night": round(random.uniform(15, 30), 2)
+            }
+            add_weather_entry(new_day, weather, temps)
 
-    while st.session_state.live_simulation:
-        # Generate new data
-        last_day = int(data["Day"].max()) if not data.empty else 0
-        new_day = last_day + 1
-        weather = random.choice(weather_states)
-        temps = {
-            "Temp_Morning": round(random.uniform(20, 35), 2),
-            "Temp_Afternoon": round(random.uniform(25, 40), 2),
-            "Temp_Night": round(random.uniform(15, 30), 2)
-        }
-        add_weather_entry(new_day, weather, temps)
+            data = ensure_columns(st.session_state.weather_data)
+            fig, ax = plt.subplots()
+            ax.plot(data["Day"], data["Severity"], marker='o', color='purple')
+            ax.set_xlabel("Day")
+            ax.set_ylabel("Severity")
+            ax.set_title("📉 Live Weather Severity Over Time")
 
-        # Update chart data
-        current_data = ensure_columns(st.session_state.weather_data)
-        days = current_data["Day"]
-        severity = current_data["Severity"]
-        line_plot.set_data(days, severity)
-        ax.relim()
-        ax.autoscale_view()
+            graph_container.pyplot(fig, clear_figure=True)
+            table_container.markdown("### 🧾 Recorded Weather Data")
+            table_container.dataframe(data.tail(10), use_container_width=True)
 
-        # Update UI without flicker
-        graph_container.pyplot(fig, clear_figure=False)
+            time.sleep(1)
+            st.rerun()
 
-        table_container.markdown("### 🧾 Recorded Weather Data")
-        table_container.dataframe(current_data.tail(10), use_container_width=True)
+    # Show TPM and Markov Chain after simulation stops
+    if not st.session_state.live_simulation and not st.session_state.last_simulation_data.empty:
+        st.markdown("---")
+        st.subheader("📊 TPM & Markov Chain (Post-Simulation)")
+        sim_data = st.session_state.last_simulation_data
+        tpm = pd.crosstab(sim_data['Weather'].shift(), sim_data['Weather'], normalize=0).reindex(
+            index=weather_states, columns=weather_states, fill_value=0).round(2)
+        st.markdown("**TPM:**")
+        st.dataframe(tpm)
 
-        time.sleep(1)
-        st.rerun()
+        current_state = sim_data.iloc[-1]["Weather"]
+        steps = 5
+        forecast = [current_state]
+        for _ in range(steps):
+            probs = tpm.loc[forecast[-1]]
+            if probs.sum() == 0:
+                forecast.append(np.random.choice(weather_states))
+            else:
+                probs = probs / probs.sum()
+                forecast.append(np.random.choice(probs.index, p=probs.values))
+        st.markdown("**Markov Forecast:**")
+        st.write(" → ".join(forecast))
