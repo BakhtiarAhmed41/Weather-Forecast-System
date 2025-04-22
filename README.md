@@ -44,10 +44,6 @@ Severity scores are used to track and visualize the intensity of weather pattern
 
 ## 🚀 Getting Started
 
-### Prerequisites
-
-Make sure you have **Python 3.8+** installed.
-
 ### Installation
 
 ```bash
